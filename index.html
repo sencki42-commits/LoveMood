@@ -13,6 +13,7 @@
     <!-- SDK Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
 
     <style>
         :root {
@@ -174,4 +175,162 @@
         <h3>Envoyer une attention :</h3>
         <div class="actions-grid">
             <button class="btn-action" onclick="envoyerAttention('🫂 Câlin virtuel')">🫂 Câlin</button>
-            <button class="btn-action" onclick="envoyerAttention('💋 Bisou
+            <button class="btn-action" onclick="envoyerAttention('💋 Bisou')">💋 Bisou</button>
+            <button class="btn-action" onclick="envoyerAttention('☕ Pause Thé/Café')">☕ Thé/Café</button>
+            <button class="btn-action" onclick="envoyerAttention('❤️ Je pense à toi')">❤️ Pensée</button>
+        </div>
+
+        <button class="btn-notif" onclick="activerPushNotifications()">🔔 Activer les notifications push</button>
+    </div>
+
+    <!-- Humeur du Partenaire -->
+    <div class="card partner-card" id="partnerApp" style="display: none;">
+        <h2>Humeur de ma moitié</h2>
+        <div class="mood-display">
+            <div class="mood-emoji" id="partnerEmoji">❓</div>
+            <div class="mood-label" id="partnerLabel">En attente de connexion...</div>
+        </div>
+        <div id="lastNotification" style="text-align: center; margin-top: 15px; font-style: italic; color: var(--primary);"></div>
+    </div>
+</div>
+
+<script>
+    // Configuration Firebase
+    const firebaseConfig = {
+        apiKey: "AIzaSyBsk0TRtP4S9VvghZDKhRyYcMf796iO5aw",
+        authDomain: "lovemood-5cff0.firebaseapp.com",
+        databaseURL: "https://lovemood-5cff0-default-rtdb.firebaseio.com",
+        projectId: "lovemood-5cff0",
+        storageBucket: "lovemood-5cff0.firebasestorage.app",
+        messagingSenderId: "756633362983",
+        appId: "1:756633362983:web:0b9d6994d05d9877faa402"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+    const messaging = firebase.messaging();
+    const VAPID_KEY = "BKHklUfxy9v0neHSQlqddfyQ3lJYeXlOouOChAVVSytzxqh4AUbAfcEAitUPFQYeT_mSNh7QO20jsF1AsOehTXA";
+
+    // Niveaux d'humeur
+    const humeurs = [
+        { emoji: "😴", label: "Épuisé(e) / Besoin de repos" },
+        { emoji: "🙁", label: "Pas au top / Triste" },
+        { emoji: "😐", label: "Tranquille / Neutre" },
+        { emoji: "😊", label: "Heureux / Content(e)" },
+        { emoji: "😍", label: "Super bien / Amoureux(se)" }
+    ];
+
+    let roomCode = localStorage.getItem('lovemood_room') || '';
+    let myRole = localStorage.getItem('lovemood_role') || '';
+    let partnerRole = myRole === 'p1' ? 'p2' : 'p1';
+
+    if (roomCode && myRole) {
+        demarrerApp();
+    }
+
+    function sauvegarderConfig() {
+        const inputRoom = document.getElementById('roomCode').value.trim();
+        const selectRole = document.getElementById('userRole').value;
+
+        if (!inputRoom) {
+            alert('Veuillez entrer un code de salon.');
+            return;
+        }
+
+        localStorage.setItem('lovemood_room', inputRoom);
+        localStorage.setItem('lovemood_role', selectRole);
+
+        roomCode = inputRoom;
+        myRole = selectRole;
+        partnerRole = myRole === 'p1' ? 'p2' : 'p1';
+
+        demarrerApp();
+    }
+
+    function activerPushNotifications() {
+        if (!('Notification' in window)) {
+            alert("Votre navigateur ne supporte pas les notifications.");
+            return;
+        }
+
+        Notification.requestPermission().then((permission) => {
+            if (permission === 'granted') {
+                messaging.getToken({ vapidKey: VAPID_KEY }).then((currentToken) => {
+                    if (currentToken) {
+                        database.ref(`salons/${roomCode}/${myRole}/fcmToken`).set(currentToken);
+                        alert("Notifications push activées avec succès !");
+                    } else {
+                        alert("Impossible de récupérer le jeton de notification.");
+                    }
+                }).catch((err) => {
+                    console.error('Erreur lors de la récupération du token:', err);
+                });
+            } else {
+                alert("Les notifications ont été refusées.");
+            }
+        });
+    }
+
+    function demarrerApp() {
+        document.getElementById('setupSection').style.display = 'none';
+        document.getElementById('mainApp').style.display = 'block';
+        document.getElementById('partnerApp').style.display = 'block';
+
+        // Écoute de l'humeur du partenaire en direct
+        database.ref(`salons/${roomCode}/${partnerRole}`).on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                if (data.humeurIndex !== undefined) {
+                    const h = humeurs[data.humeurIndex];
+                    document.getElementById('partnerEmoji').innerText = h.emoji;
+                    document.getElementById('partnerLabel').innerText = h.label;
+                }
+                if (data.derniereAttention) {
+                    document.getElementById('lastNotification').innerText = `Reçu : ${data.derniereAttention}`;
+                }
+            }
+        });
+
+        // Tenter d'enregistrer le token push automatiquement si la permission est déjà accordée
+        if (Notification.permission === 'granted') {
+            messaging.getToken({ vapidKey: VAPID_KEY }).then((token) => {
+                if (token) {
+                    database.ref(`salons/${roomCode}/${myRole}/fcmToken`).set(token);
+                }
+            });
+        }
+    }
+
+    function mettreAJourMonHumeur(index) {
+        const h = humeurs[index];
+        document.getElementById('myEmoji').innerText = h.emoji;
+        document.getElementById('myLabel').innerText = h.label;
+
+        if (roomCode && myRole) {
+            database.ref(`salons/${roomCode}/${myRole}`).update({
+                humeurIndex: parseInt(index),
+                timestamp: Date.now()
+            });
+        }
+    }
+
+    function envoyerAttention(message) {
+        if (roomCode && myRole) {
+            database.ref(`salons/${roomCode}/${myRole}`).update({
+                derniereAttention: message,
+                timestamp: Date.now()
+            });
+            alert(`Attention envoyée : ${message}`);
+        }
+    }
+
+    // Enregistrement du Service Worker
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js')
+            .then(() => console.log('Service Worker enregistré'))
+            .catch(err => console.error('Erreur Service Worker:', err));
+    }
+</script>
+
+</body>
+</html>
