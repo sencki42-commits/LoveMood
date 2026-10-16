@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoveMood</title>
+    
+    <!-- Configuration PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ff4d6d">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- SDK Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+    <style>
+        :root {
+            --primary: #ff4d6d;
+            --bg-color: #fff5f7;
+            --card-bg: #ffffff;
+            --text-color: #2b2d42;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .header {
+            text-align: center;
+        }
+
+        .header h1 {
+            color: var(--primary);
+            margin: 0;
+            font-size: 1.8rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .partner-card {
+            border: 2px solid #ffe3e8;
+        }
+
+        .mood-display {
+            text-align: center;
+        }
+
+        .mood-emoji {
+            font-size: 3.5rem;
+            margin: 10px 0;
+        }
+
+        .mood-label {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin: 15px 0;
+            accent-color: var(--primary);
+        }
+
+        .actions-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .btn-action {
+            background: #fff0f3;
+            border: 1px solid #ffccd5;
+            padding: 10px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .btn-action:active {
+            transform: scale(0.95);
+        }
+
+        .setup-box {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        input[type="text"], select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            font-size: 1rem;
+        }
+
+        button.primary {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>❤️ LoveMood</h1>
+    </div>
+
+    <!-- Configuration du Salon -->
+    <div class="card setup-box" id="setupSection">
+        <h3>Configuration de la connexion</h3>
+        <label for="roomCode">Code de Salon Secret :</label>
+        <input type="text" id="roomCode" placeholder="Ex: notrecouple2026">
+        
+        <label for="userRole">Qui es-tu ?</label>
+        <select id="userRole">
+            <option value="p1">Partenaire 1</option>
+            <option value="p2">Partenaire 2</option>
+        </select>
+        
+        <button class="primary" onclick="sauvegarderConfig()">Rejoindre & Synchroniser</button>
+    </div>
+
+    <!-- Mon Humeur -->
+    <div class="card" id="mainApp" style="display: none;">
+        <h2>Mon Humeur</h2>
+        <div class="mood-display">
+            <div class="mood-emoji" id="myEmoji">😊</div>
+            <div class="mood-label" id="myLabel">Heureux / Heureuse</div>
+        </div>
+        <input type="range" id="moodSlider" min="0" max="4" step="1" value="2" oninput="mettreAJourMonHumeur(this.value)">
+
+        <h3>Envoyer une attention :</h3>
+        <div class="actions-grid">
+            <button class="btn-action" onclick="envoyerAttention('🫂 Câlin virtuel')">🫂 Câlin</button>
+            <button class="btn-action" onclick="envoyerAttention('💋 Bisou')">💋 Bisou</button>
+            <button class="btn-action" onclick="envoyerAttention('☕ Pause Thé/Café')">☕ Thé/Café</button>
+            <button class="btn-action" onclick="envoyerAttention('❤️ Je pense à toi')">❤️ Pensée</button>
+        </div>
+    </div>
+
+    <!-- Humeur du Partenaire -->
+    <div class="card partner-card" id="partnerApp" style="display: none;">
+        <h2>Humeur de ma moitié</h2>
+        <div class="mood-display">
+            <div class="mood-emoji" id="partnerEmoji">❓</div>
+            <div class="mood-label" id="partnerLabel">En attente de connexion...</div>
+        </div>
+        <div id="lastNotification" style="text-align: center; margin-top: 15px; font-style: italic; color: var(--primary);"></div>
+    </div>
+</div>
+
+<script>
+    // Configuration Firebase
+    const firebaseConfig = {
+        apiKey: "AIzaSyBsk0TRtP4S9VvghZDKhRyYcMf796iO5aw",
+        authDomain: "lovemood-5cff0.firebaseapp.com",
+        databaseURL: "https://lovemood-5cff0-default-rtdb.firebaseio.com",
+        projectId: "lovemood-5cff0",
+        storageBucket: "lovemood-5cff0.firebasestorage.app",
+        messagingSenderId: "756633362983",
+        appId: "1:756633362983:web:0b9d6994d05d9877faa402"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+
+    // Niveaux d'humeur
+    const humeurs = [
+        { emoji: "😴", label: "Épuisé(e) / Besoins de repos" },
+        { emoji: "🙁", label: "Pas au top / Triste" },
+        { emoji: "😐", label: "Tranquille / Neutre" },
+        { emoji: "😊", label: "Heureux / Content(e)" },
+        { emoji: "😍", label: "Super bien / Amoureux(se)" }
+    ];
+
+    let roomCode = localStorage.getItem('lovemood_room') || '';
+    let myRole = localStorage.getItem('lovemood_role') || '';
+    let partnerRole = myRole === 'p1' ? 'p2' : 'p1';
+
+    if (roomCode && myRole) {
+        demarrerApp();
+    }
+
+    function sauvegarderConfig() {
+        const inputRoom = document.getElementById('roomCode').value.trim();
+        const selectRole = document.getElementById('userRole').value;
+
+        if (!inputRoom) {
+            alert('Veuillez entrer un code de salon.');
+            return;
+        }
+
+        localStorage.setItem('lovemood_room', inputRoom);
+        localStorage.setItem('lovemood_role', selectRole);
+
+        roomCode = inputRoom;
+        myRole = selectRole;
+        partnerRole = myRole === 'p1' ? 'p2' : 'p1';
+
+        demarrerApp();
+    }
+
+    function demarrerApp() {
+        document.getElementById('setupSection').style.display = 'none';
+        document.getElementById('mainApp').style.display = 'block';
+        document.getElementById('partnerApp').style.display = 'block';
+
+        // Écoute de l'humeur du partenaire en direct
+        database.ref(`salons/${roomCode}/${partnerRole}`).on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                if (data.humeurIndex !== undefined) {
+                    const h = humeurs[data.humeurIndex];
+                    document.getElementById('partnerEmoji').innerText = h.emoji;
+                    document.getElementById('partnerLabel').innerText = h.label;
+                }
+                if (data.derniereAttention) {
+                    document.getElementById('lastNotification').innerText = `Reçu : ${data.derniereAttention}`;
+                }
+            }
+        });
+    }
+
+    function mettreAJourMonHumeur(index) {
+        const h = humeurs[index];
+        document.getElementById('myEmoji').innerText = h.emoji;
+        document.getElementById('myLabel').innerText = h.label;
+
+        if (roomCode && myRole) {
+            database.ref(`salons/${roomCode}/${myRole}`).update({
+                humeurIndex: parseInt(index),
+                timestamp: Date.now()
+            });
+        }
+    }
+
+    function envoyerAttention(message) {
+        if (roomCode && myRole) {
+            database.ref(`salons/${roomCode}/${myRole}`).update({
+                derniereAttention: message,
+                timestamp: Date.now()
+            });
+            alert(`Attention envoyée : ${message}`);
+        }
+    }
+
+    // Enregistrement du Service Worker pour PWA
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js')
+            .then(() => console.log('Service Worker enregistré'))
+            .catch(err => console.error('Erreur Service Worker:', err));
+    }
+</script>
+
+</body>
+</html>
