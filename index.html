@@ -13,7 +13,6 @@
     <!-- SDK Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
 
     <style>
         :root {
@@ -35,7 +34,7 @@
 
         .container {
             width: 100%;
-            max-width: 400px;
+            max-width: 420px;
             display: flex;
             flex-direction: column;
             gap: 20px;
@@ -43,6 +42,7 @@
 
         .header {
             text-align: center;
+            position: relative;
         }
 
         .header h1 {
@@ -97,11 +97,6 @@
             border-radius: 12px;
             font-size: 0.9rem;
             cursor: pointer;
-            transition: transform 0.1s;
-        }
-
-        .btn-action:active {
-            transform: scale(0.95);
         }
 
         .setup-box {
@@ -139,6 +134,21 @@
             width: 100%;
             margin-top: 10px;
         }
+
+        .custom-item {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 5px;
+        }
+
+        .btn-remove {
+            background: #ff4d6d;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -148,7 +158,7 @@
         <h1>❤️ LoveMood</h1>
     </div>
 
-    <!-- Configuration du Salon -->
+    <!-- Configuration du Salon & Personnalisation -->
     <div class="card setup-box" id="setupSection">
         <h3>Configuration de la connexion</h3>
         <label for="roomCode">Code de Salon Secret :</label>
@@ -159,18 +169,25 @@
             <option value="p1">Partenaire 1</option>
             <option value="p2">Partenaire 2</option>
         </select>
+
+        <h4>Personnaliser mes états d'humeur</h4>
+        <div id="customMoodsList"></div>
+        <button type="button" class="btn-action" onclick="ajouterOptionHumeur()">+ Ajouter une humeur</button>
         
-        <button class="primary" onclick="sauvegarderConfig()">Rejoindre & Synchroniser</button>
+        <button class="primary" onclick="sauvegarderConfig()" style="margin-top: 15px;">Enregistrer & Connexion</button>
     </div>
 
     <!-- Mon Humeur -->
     <div class="card" id="mainApp" style="display: none;">
-        <h2>Mon Humeur</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="margin: 0;">Mon Humeur</h2>
+            <button class="btn-action" onclick="ouvrirReglages()">⚙️</button>
+        </div>
         <div class="mood-display">
             <div class="mood-emoji" id="myEmoji">😊</div>
-            <div class="mood-label" id="myLabel">Heureux / Content(e)</div>
+            <div class="mood-label" id="myLabel">Chargement...</div>
         </div>
-        <input type="range" id="moodSlider" min="0" max="4" step="1" value="3" oninput="mettreAJourMonHumeur(this.value)">
+        <input type="range" id="moodSlider" min="0" max="0" step="1" value="0" onchange="envoyerHumeur(this.value)" oninput="mettreAJourAperçuLocal(this.value)">
 
         <h3>Envoyer une attention :</h3>
         <div class="actions-grid">
@@ -180,7 +197,7 @@
             <button class="btn-action" onclick="envoyerAttention('❤️ Je pense à toi')">❤️ Pensée</button>
         </div>
 
-        <button class="btn-notif" onclick="activerPushNotifications()">🔔 Activer les notifications push</button>
+        <button class="btn-notif" onclick="activerNotifications()">🔔 Activer / Vérifier les notifications</button>
     </div>
 
     <!-- Humeur du Partenaire -->
@@ -188,14 +205,13 @@
         <h2>Humeur de ma moitié</h2>
         <div class="mood-display">
             <div class="mood-emoji" id="partnerEmoji">❓</div>
-            <div class="mood-label" id="partnerLabel">En attente de connexion...</div>
+            <div class="mood-label" id="partnerLabel">En attente...</div>
         </div>
         <div id="lastNotification" style="text-align: center; margin-top: 15px; font-style: italic; color: var(--primary);"></div>
     </div>
 </div>
 
 <script>
-    // Configuration Firebase
     const firebaseConfig = {
         apiKey: "AIzaSyBsk0TRtP4S9VvghZDKhRyYcMf796iO5aw",
         authDomain: "lovemood-5cff0.firebaseapp.com",
@@ -208,24 +224,58 @@
 
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
-    const messaging = firebase.messaging();
-    const VAPID_KEY = "BKHklUfxy9v0neHSQlqddfyQ3lJYeXlOouOChAVVSytzxqh4AUbAfcEAitUPFQYeT_mSNh7QO20jsF1AsOehTXA";
 
-    // Niveaux d'humeur
-    const humeurs = [
-        { emoji: "😴", label: "Épuisé(e) / Besoin de repos" },
-        { emoji: "🙁", label: "Pas au top / Triste" },
-        { emoji: "😐", label: "Tranquille / Neutre" },
+    let humeursParDefaut = [
+        { emoji: "😴", label: "Épuisé(e)" },
+        { emoji: "🙁", label: "Pas au top" },
+        { emoji: "😐", label: "Tranquille" },
         { emoji: "😊", label: "Heureux / Content(e)" },
-        { emoji: "😍", label: "Super bien / Amoureux(se)" }
+        { emoji: "😍", label: "Super bien" }
     ];
 
+    let humeurs = JSON.parse(localStorage.getItem('lovemood_custom_humeurs')) || humeursParDefaut;
     let roomCode = localStorage.getItem('lovemood_room') || '';
     let myRole = localStorage.getItem('lovemood_role') || '';
     let partnerRole = myRole === 'p1' ? 'p2' : 'p1';
+    let dernierTimestamp = 0;
+
+    afficherListeConfigHumeurs();
 
     if (roomCode && myRole) {
         demarrerApp();
+    }
+
+    function afficherListeConfigHumeurs() {
+        const container = document.getElementById('customMoodsList');
+        container.innerHTML = '';
+        humeurs.forEach((h, index) => {
+            const div = document.createElement('div');
+            div.className = 'custom-item';
+            div.innerHTML = `
+                <input type="text" value="${h.emoji}" style="width: 40px; text-align:center;" onchange="modifierHumeur(${index}, 'emoji', this.value)">
+                <input type="text" value="${h.label}" style="flex:1;" onchange="modifierHumeur(${index}, 'label', this.value)">
+                <button class="btn-remove" onclick="supprimerHumeur(${index})">✕</button>
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    function ajouterOptionHumeur() {
+        humeurs.push({ emoji: "✨", label: "Nouvelle humeur" });
+        afficherListeConfigHumeurs();
+    }
+
+    function modifierHumeur(index, champ, valeur) {
+        humeurs[index][champ] = valeur;
+    }
+
+    function supprimerHumeur(index) {
+        if (humeurs.length <= 1) {
+            alert("Il faut au moins une humeur !");
+            return;
+        }
+        humeurs.splice(index, 1);
+        afficherListeConfigHumeurs();
     }
 
     function sauvegarderConfig() {
@@ -239,6 +289,7 @@
 
         localStorage.setItem('lovemood_room', inputRoom);
         localStorage.setItem('lovemood_role', selectRole);
+        localStorage.setItem('lovemood_custom_humeurs', JSON.stringify(humeurs));
 
         roomCode = inputRoom;
         myRole = selectRole;
@@ -247,28 +298,40 @@
         demarrerApp();
     }
 
-    function activerPushNotifications() {
+    function ouvrirReglages() {
+        document.getElementById('setupSection').style.display = 'flex';
+        document.getElementById('mainApp').style.display = 'none';
+        document.getElementById('partnerApp').style.display = 'none';
+    }
+
+    function activerNotifications() {
         if (!('Notification' in window)) {
-            alert("Votre navigateur ne supporte pas les notifications.");
+            alert("Ce navigateur ne supporte pas les notifications.");
             return;
         }
-
-        Notification.requestPermission().then((permission) => {
+        Notification.requestPermission().then(permission => {
             if (permission === 'granted') {
-                messaging.getToken({ vapidKey: VAPID_KEY }).then((currentToken) => {
-                    if (currentToken) {
-                        database.ref(`salons/${roomCode}/${myRole}/fcmToken`).set(currentToken);
-                        alert("Notifications push activées avec succès !");
-                    } else {
-                        alert("Impossible de récupérer le jeton de notification.");
-                    }
-                }).catch((err) => {
-                    console.error('Erreur lors de la récupération du token:', err);
-                });
+                alert("Notifications activées !");
             } else {
-                alert("Les notifications ont été refusées.");
+                alert("Les notifications sont bloquées ou refusées.");
             }
         });
+    }
+
+    function declencherNotification(titre, corps) {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.ready.then(registration => {
+                    registration.showNotification(titre, {
+                        body: corps,
+                        icon: 'https://cdn-icons-png.flaticon.com/512/2589/2589175.png',
+                        vibrate: [200, 100, 200]
+                    });
+                });
+            } else {
+                new Notification(titre, { body: corps });
+            }
+        }
     }
 
     function demarrerApp() {
@@ -276,39 +339,54 @@
         document.getElementById('mainApp').style.display = 'block';
         document.getElementById('partnerApp').style.display = 'block';
 
-        // Écoute de l'humeur du partenaire en direct
+        const slider = document.getElementById('moodSlider');
+        slider.max = humeurs.length - 1;
+        
+        mettreAJourAperçuLocal(slider.value);
+
+        // Écoute de l'humeur du partenaire
         database.ref(`salons/${roomCode}/${partnerRole}`).on('value', (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                if (data.humeurIndex !== undefined) {
-                    const h = humeurs[data.humeurIndex];
-                    document.getElementById('partnerEmoji').innerText = h.emoji;
-                    document.getElementById('partnerLabel').innerText = h.label;
+                const estNouveau = data.timestamp && data.timestamp > dernierTimestamp;
+
+                if (data.emoji !== undefined && data.label !== undefined) {
+                    document.getElementById('partnerEmoji').innerText = data.emoji;
+                    document.getElementById('partnerLabel').innerText = data.label;
+
+                    if (estNouveau && dernierTimestamp !== 0 && data.type === 'humeur') {
+                        declencherNotification("Nouvelle humeur ! ❤️", `Votre moitié est : ${data.emoji} ${data.label}`);
+                    }
                 }
+
                 if (data.derniereAttention) {
                     document.getElementById('lastNotification').innerText = `Reçu : ${data.derniereAttention}`;
+
+                    if (estNouveau && dernierTimestamp !== 0 && data.type === 'attention') {
+                        declencherNotification("Petite attention ! 💌", `Votre moitié vous a envoyé : ${data.derniereAttention}`);
+                    }
+                }
+
+                if (data.timestamp) {
+                    dernierTimestamp = data.timestamp;
                 }
             }
         });
-
-        // Tenter d'enregistrer le token push automatiquement si la permission est déjà accordée
-        if (Notification.permission === 'granted') {
-            messaging.getToken({ vapidKey: VAPID_KEY }).then((token) => {
-                if (token) {
-                    database.ref(`salons/${roomCode}/${myRole}/fcmToken`).set(token);
-                }
-            });
-        }
     }
 
-    function mettreAJourMonHumeur(index) {
-        const h = humeurs[index];
+    function mettreAJourAperçuLocal(index) {
+        const h = humeurs[index] || humeurs[0];
         document.getElementById('myEmoji').innerText = h.emoji;
         document.getElementById('myLabel').innerText = h.label;
+    }
 
+    function envoyerHumeur(index) {
+        const h = humeurs[index] || humeurs[0];
         if (roomCode && myRole) {
             database.ref(`salons/${roomCode}/${myRole}`).update({
-                humeurIndex: parseInt(index),
+                emoji: h.emoji,
+                label: h.label,
+                type: 'humeur',
                 timestamp: Date.now()
             });
         }
@@ -318,19 +396,18 @@
         if (roomCode && myRole) {
             database.ref(`salons/${roomCode}/${myRole}`).update({
                 derniereAttention: message,
+                type: 'attention',
                 timestamp: Date.now()
             });
             alert(`Attention envoyée : ${message}`);
         }
     }
 
-    // Enregistrement du Service Worker
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js')
-            .then(() => console.log('Service Worker enregistré'))
-            .catch(err => console.error('Erreur Service Worker:', err));
+            .then(() => console.log('Service Worker OK'))
+            .catch(err => console.error(err));
     }
 </script>
-
 </body>
 </html>
