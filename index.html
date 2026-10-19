@@ -341,8 +341,26 @@
 
         const slider = document.getElementById('moodSlider');
         slider.max = humeurs.length - 1;
-        
-        mettreAJourAperçuLocal(slider.value);
+
+        // Charger l'index sauvegardé localement si disponible
+        const indexSauvegarde = localStorage.getItem('lovemood_last_index');
+        if (indexSauvegarde !== null && indexSauvegarde < humeurs.length) {
+            slider.value = indexSauvegarde;
+            mettreAJourAperçuLocal(indexSauvegarde);
+        } else {
+            slider.value = 0;
+            mettreAJourAperçuLocal(0);
+        }
+
+        // Récupération de ma propre humeur sur Firebase au démarrage
+        database.ref(`salons/${roomCode}/${myRole}`).once('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.humeurIndex !== undefined && data.humeurIndex < humeurs.length) {
+                slider.value = data.humeurIndex;
+                localStorage.setItem('lovemood_last_index', data.humeurIndex);
+                mettreAJourAperçuLocal(data.humeurIndex);
+            }
+        });
 
         // Écoute de l'humeur du partenaire
         database.ref(`salons/${roomCode}/${partnerRole}`).on('value', (snapshot) => {
@@ -382,8 +400,11 @@
 
     function envoyerHumeur(index) {
         const h = humeurs[index] || humeurs[0];
+        localStorage.setItem('lovemood_last_index', index);
+        
         if (roomCode && myRole) {
             database.ref(`salons/${roomCode}/${myRole}`).update({
+                humeurIndex: parseInt(index),
                 emoji: h.emoji,
                 label: h.label,
                 type: 'humeur',
